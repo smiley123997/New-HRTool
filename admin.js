@@ -252,39 +252,92 @@ function buildEmployeeTable(data) {
   var banner = document.getElementById('sampleDataBanner');
   if (banner) banner.style.display = hasSample ? 'flex' : 'none';
 
+  if (!data.length) {
+    var empty = document.createElement('tr');
+    var etd = document.createElement('td'); etd.colSpan = 7;
+    etd.style.cssText = 'text-align:center;padding:40px;color:var(--text-muted);font-size:13px;';
+    etd.innerHTML = '👥 No employees yet. Click <strong>+ Add Employee</strong> to get started.';
+    empty.appendChild(etd); tbody.appendChild(empty); return;
+  }
+
   var sm = { active:'badge-green', 'on-leave':'badge-yellow', inactive:'badge-red' };
   var sl = { active:'Active', 'on-leave':'On Leave', inactive:'Inactive' };
+
   data.forEach(function(emp) {
     var tr = document.createElement('tr');
-    if (emp.isSample) tr.style.opacity = '0.7';
+    if (emp.isSample) tr.style.opacity = '0.75';
+
+    // Employee cell — name is clickable link
     var empTd = document.createElement('td');
     var wrap = document.createElement('div'); wrap.style.cssText='display:flex;align-items:center;gap:10px;';
     var av = document.createElement('div'); av.className='avatar'; av.style.cssText='width:32px;height:32px;font-size:11px;flex-shrink:0;'; av.textContent=emp.initials;
     var nameWrap = document.createElement('div');
-    var nm = document.createElement('div'); nm.style.cssText='font-weight:600;font-size:13px;'; nm.textContent=emp.name;
+    var nm = document.createElement('div');
+    nm.style.cssText = 'font-weight:600;font-size:13px;color:var(--brand);cursor:pointer;text-decoration:underline;';
+    nm.textContent = emp.name;
+    // Clickable name → employee detail modal
+    (function(e){ nm.addEventListener('click', function(){ openEmployeeDetail(e); }); })(emp);
     var idEl = document.createElement('div'); idEl.style.cssText='font-size:11px;color:var(--text-muted);'; idEl.textContent=emp.id + (emp.isSample ? ' · Sample' : '');
     nameWrap.appendChild(nm); nameWrap.appendChild(idEl); wrap.appendChild(av); wrap.appendChild(nameWrap); empTd.appendChild(wrap);
     tr.appendChild(empTd);
+
     function td(t) { var c=document.createElement('td'); c.textContent=t; return c; }
     tr.appendChild(td(emp.dept)); tr.appendChild(td(emp.role)); tr.appendChild(td(emp.join));
+
     var stTd=document.createElement('td'); var b=document.createElement('span');
     b.className='badge '+(sm[emp.status]||'badge-blue'); b.textContent=sl[emp.status]||emp.status;
     stTd.appendChild(b); tr.appendChild(stTd);
+
+    // Live activity cell — auto-reflects employee's current check-in/break/checkout state
+    var liveTd = document.createElement('td');
+    var ls = getEmployeeLiveStatus(emp);
+    var liveColors = { present:'#dcfce7', break:'#fef9c3', 'checked-out':'#f3f4f6', leave:'#ede9fe', absent:'#fee2e2' };
+    var liveText   = { present:'#166534', break:'#92400e', 'checked-out':'#374151', leave:'#4338ca', absent:'#991b1b' };
+    var liveLabel  = ls.status==='break' ? '☕ '+ls.label
+                   : ls.status==='present' ? '🟢 Working'
+                   : ls.status==='leave' ? '📅 On Leave'
+                   : ls.status==='checked-out' ? '✓ Checked Out'
+                   : '🔴 Absent';
+    var liveWrap = document.createElement('div');
+    liveWrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;align-items:flex-start;';
+    var liveBadge = document.createElement('span');
+    liveBadge.style.cssText = 'padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap;background:'+(liveColors[ls.status]||'#f3f4f6')+';color:'+(liveText[ls.status]||'#374151')+';';
+    liveBadge.textContent = liveLabel;
+    var liveTimes = document.createElement('div');
+    liveTimes.style.cssText = 'font-size:11px;color:var(--text-muted);';
+    var timeParts = [];
+    if (ls.checkIn && ls.checkIn !== '--:--') timeParts.push('In: '+ls.checkIn);
+    if (ls.checkOut && ls.checkOut !== '--:--') timeParts.push('Out: '+ls.checkOut);
+    if (ls.workedSecs) timeParts.push('💼 '+fhm2(ls.workedSecs));
+    if (ls.breakSecs)  timeParts.push('☕ '+fhm2(ls.breakSecs));
+    liveTimes.textContent = timeParts.join(' · ');
+    liveWrap.appendChild(liveBadge);
+    if (timeParts.length) liveWrap.appendChild(liveTimes);
+    liveTd.appendChild(liveWrap);
+    tr.appendChild(liveTd);
+
     var acTd=document.createElement('td'); acTd.className='table-actions-cell';
     var editBtn=document.createElement('button'); editBtn.className='btn btn-sm btn-outline'; editBtn.textContent='✏️ Edit';
     (function(e){ editBtn.addEventListener('click', function() { openEditEmp(e); }); })(emp);
     var delBtn=document.createElement('button'); delBtn.className='btn btn-sm btn-danger'; delBtn.textContent='🗑 Delete';
-    delBtn.addEventListener('click', function() {
-      if (!confirm('Delete ' + emp.name + '? This cannot be undone.')) return;
-      employees = employees.filter(function(e) { return e.id !== emp.id; });
-      saveEmployees(employees);
-      buildEmployeeTable(employees);
-    });
+    (function(e){
+      delBtn.addEventListener('click', function() {
+        if (!confirm('Delete ' + e.name + '? This cannot be undone.')) return;
+        employees = employees.filter(function(x) { return x.id !== e.id; });
+        saveEmployees(employees);
+        buildEmployeeTable(employees);
+      });
+    })(emp);
     acTd.appendChild(editBtn); acTd.appendChild(delBtn); tr.appendChild(acTd);
     tbody.appendChild(tr);
   });
 }
 buildEmployeeTable(employees);
+// Auto-refresh live activity column every 5 seconds while directory is open
+setInterval(function() {
+  var screen = document.getElementById('screen-admin-employees');
+  if (screen && screen.classList.contains('active')) buildEmployeeTable(employees);
+}, 5000);
 
 // ── APPROVALS (reads live from localStorage + defaults) ───────
 function buildApprovals() {
@@ -761,128 +814,47 @@ document.getElementById('saveAttBtn').addEventListener('click', function() {
   attModal.classList.remove('open');
 });
 
-// ── WORKING HOURS TABLE ───────────────────────────────────────
-var workHoursData = [
-  { id:'WP-1001', name:'Arjun Kumar',  dept:'Engineering', initials:'AK', workDays:5, totalHours:45, todayIn:'09:02', todayOut:'—', todayMins:360 },
-  { id:'WP-1002', name:'Priya Sharma', dept:'HR',          initials:'PS', workDays:5, totalHours:46, todayIn:'08:55', todayOut:'—', todayMins:375 },
-  { id:'WP-1003', name:'Ravi Shankar', dept:'Engineering', initials:'RS', workDays:5, totalHours:48, todayIn:'09:15', todayOut:'—', todayMins:340 },
-  { id:'WP-1004', name:'Sneha Patel',  dept:'Finance',     initials:'SP', workDays:5, totalHours:43, todayIn:'09:30', todayOut:'—', todayMins:315 },
-  { id:'WP-1005', name:'Karan Singh',  dept:'Sales',       initials:'KS', workDays:5, totalHours:44, todayIn:'09:00', todayOut:'—', todayMins:360 },
-  { id:'WP-1006', name:'Ananya Roy',   dept:'Marketing',   initials:'AR', workDays:4, totalHours:36, todayIn:'—',     todayOut:'—', todayMins:0   },
-  { id:'WP-1007', name:'Vijay Menon',  dept:'Engineering', initials:'VM', workDays:5, totalHours:45, todayIn:'09:10', todayOut:'—', todayMins:350 },
-  { id:'WP-1008', name:'Deepa Nair',   dept:'HR',          initials:'DN', workDays:4, totalHours:35, todayIn:'—',     todayOut:'—', todayMins:0   },
-];
-
-// June 2–8: 5 working weekdays (Mon–Fri), today Sun = 8 is a holiday/weekend
-// Target: 5 days × 8h = 40h
-var TARGET_DAYS  = 5;
-var TARGET_HOURS = 40;
-
-function buildWorkHoursTable() {
-  var tbody = document.getElementById('workHoursTableBody');
-  if (!tbody) return;
-  tbody.innerHTML = '';
-  workHoursData.forEach(function(emp) {
-    var tr = document.createElement('tr');
-
-    var empTd = document.createElement('td');
-    var wrap = document.createElement('div'); wrap.style.cssText='display:flex;align-items:center;gap:8px;';
-    var av = document.createElement('div'); av.className='avatar'; av.style.cssText='width:28px;height:28px;font-size:10px;flex-shrink:0;'; av.textContent=emp.initials;
-    var nameDiv = document.createElement('div');
-    var nm=document.createElement('div'); nm.style.cssText='font-weight:600;font-size:13px;'; nm.textContent=emp.name;
-    var id=document.createElement('div'); id.style.cssText='font-size:10px;color:var(--text-muted);'; id.textContent=emp.id;
-    nameDiv.appendChild(nm); nameDiv.appendChild(id); wrap.appendChild(av); wrap.appendChild(nameDiv); empTd.appendChild(wrap);
-    tr.appendChild(empTd);
-
-    function td(t){var c=document.createElement('td');c.textContent=t;return c;}
-    tr.appendChild(td(emp.dept));
-
-    // Working Days progress
-    var daysTd=document.createElement('td');
-    var dayColor=emp.workDays>=TARGET_DAYS?'good':emp.workDays>=TARGET_DAYS-1?'warn':'low';
-    var dw=document.createElement('div'); dw.className='wh-progress';
-    var dt=document.createElement('div'); dt.className='wh-bar-track';
-    var df=document.createElement('div'); df.className='wh-bar-fill '+dayColor; df.style.width=Math.round((emp.workDays/TARGET_DAYS)*100)+'%';
-    dt.appendChild(df); var dl=document.createElement('span'); dl.className='wh-hours-label'; dl.textContent=emp.workDays+' / '+TARGET_DAYS;
-    dw.appendChild(dt); dw.appendChild(dl); daysTd.appendChild(dw); tr.appendChild(daysTd);
-
-    // Total hours progress
-    var hrsTd=document.createElement('td');
-    var hrsColor=emp.totalHours>=TARGET_HOURS?'good':emp.totalHours>=TARGET_HOURS-5?'warn':'low';
-    var hw=document.createElement('div'); hw.className='wh-progress';
-    var ht=document.createElement('div'); ht.className='wh-bar-track';
-    var hf=document.createElement('div'); hf.className='wh-bar-fill '+hrsColor; hf.style.width=Math.min(100,Math.round((emp.totalHours/TARGET_HOURS)*100))+'%';
-    ht.appendChild(hf); var hl=document.createElement('span'); hl.className='wh-hours-label'; hl.textContent=emp.totalHours+'h / '+TARGET_HOURS+'h';
-    hw.appendChild(ht); hw.appendChild(hl); hrsTd.appendChild(hw); tr.appendChild(hrsTd);
-
-    var avg = emp.workDays>0?(emp.totalHours/emp.workDays).toFixed(1):'0.0';
-    tr.appendChild(td(avg+'h'));
-
-    var ot=Math.max(0,emp.totalHours-TARGET_HOURS);
-    var otTd=document.createElement('td'); otTd.textContent=ot>0?'+'+ot+'h':'—';
-    if(ot>0) otTd.style.cssText='color:var(--green);font-weight:600;';
-    tr.appendChild(otTd);
-
-    tr.appendChild(td(emp.todayIn));
-    tr.appendChild(td(emp.todayOut));
-
-    var todayH=Math.floor(emp.todayMins/60), todayM=emp.todayMins%60;
-    var todayTd=document.createElement('td');
-    todayTd.textContent=emp.todayMins>0?todayH+'h '+todayM+'m':'—';
-    if(emp.todayMins>0) todayTd.style.cssText='font-weight:600;color:var(--brand);';
-    tr.appendChild(todayTd);
-
-    var stTd=document.createElement('td'); var b=document.createElement('span');
-    var isPresent=emp.todayIn!=='—';
-    b.className=isPresent?'badge badge-green':'badge badge-red';
-    b.textContent=isPresent?'Present':'Absent';
-    stTd.appendChild(b); tr.appendChild(stTd);
-
-    tbody.appendChild(tr);
-  });
-}
-buildWorkHoursTable();
-
 // ── LIVE DATE LABEL ───────────────────────────────────────────
 (function() {
   var el = document.getElementById('liveDate');
   if (el) el.textContent = new Date().toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' });
 })();
 
-// ── LIVE PUNCH GRID ───────────────────────────────────────────
+// ── LIVE PUNCH GRID — real data ───────────────────────────────
 (function() {
   var container = document.getElementById('livePunchGrid');
   if (!container) return;
-  workHoursData.forEach(function(emp) {
+  employees.forEach(function(emp) {
+    var ls = getEmployeeLiveStatus(emp);
     var card=document.createElement('div'); card.className='punch-card';
+    card.style.borderLeft='3px solid '+ls.color;
     var header=document.createElement('div'); header.className='punch-card-header';
-    var av=document.createElement('div'); av.className='punch-card-avatar'; av.textContent=emp.initials;
+    var av=document.createElement('div'); av.className='punch-card-avatar'; av.style.background=ls.color; av.textContent=emp.initials;
     var info=document.createElement('div');
     var nm=document.createElement('div'); nm.className='punch-card-name'; nm.textContent=emp.name;
     var dp=document.createElement('div'); dp.className='punch-card-dept'; dp.textContent=emp.dept;
     info.appendChild(nm); info.appendChild(dp); header.appendChild(av); header.appendChild(info);
 
-    var isPresent=emp.todayIn!=='—';
-    var badge=document.createElement('span');
-    badge.className=isPresent?'badge badge-green':'badge badge-red';
-    badge.textContent=isPresent?'● Working':'○ Not In'; badge.style.fontSize='11px';
+    var stMap={present:'badge-green',break:'badge-yellow','checked-out':'badge-blue',leave:'badge-purple',absent:'badge-red'};
+    var lbMap={present:'🟢 Working',break:'☕ '+ls.label,'checked-out':'✓ Done',leave:'📅 Leave',absent:'🔴 Absent'};
+    var badge=document.createElement('span'); badge.className='badge '+(stMap[ls.status]||'badge-red'); badge.textContent=lbMap[ls.status]||'Absent'; badge.style.fontSize='11px';
 
     var times=document.createElement('div'); times.className='punch-card-times';
     var inItem=document.createElement('div'); inItem.className='punch-time-item';
     var inLbl=document.createElement('div'); inLbl.className='punch-time-label'; inLbl.textContent='IN';
-    var inVal=document.createElement('div'); inVal.className='punch-time-val'; inVal.textContent=emp.todayIn;
+    var inVal=document.createElement('div'); inVal.className='punch-time-val'; inVal.textContent=ls.checkIn||'—';
     inItem.appendChild(inLbl); inItem.appendChild(inVal);
     var outItem=document.createElement('div'); outItem.className='punch-time-item';
     var outLbl=document.createElement('div'); outLbl.className='punch-time-label'; outLbl.textContent='OUT';
-    var outVal=document.createElement('div'); outVal.className='punch-time-val'; outVal.textContent=emp.todayOut;
+    var outVal=document.createElement('div'); outVal.className='punch-time-val'; outVal.textContent=ls.checkOut||'—';
     outItem.appendChild(outLbl); outItem.appendChild(outVal);
     times.appendChild(inItem); times.appendChild(outItem);
 
     var hoursRow=document.createElement('div'); hoursRow.className='punch-hours';
-    var hLbl=document.createElement('span'); hLbl.style.cssText='font-size:11px;color:var(--text-muted);'; hLbl.textContent='Today';
+    var hLbl=document.createElement('span'); hLbl.style.cssText='font-size:11px;color:var(--text-muted);'; hLbl.textContent='Worked';
     var hVal=document.createElement('span'); hVal.className='punch-hours-val';
-    if(emp.todayMins>0){ hVal.textContent=Math.floor(emp.todayMins/60)+'h '+(emp.todayMins%60)+'m'; }
-    else { hVal.textContent='—'; hVal.style.color='var(--text-muted)'; }
+    hVal.textContent = ls.workedSecs ? fhm2(ls.workedSecs) : '—';
+    if (!ls.workedSecs) hVal.style.color='var(--text-muted)';
     hoursRow.appendChild(hLbl); hoursRow.appendChild(hVal);
 
     card.appendChild(header); card.appendChild(badge); card.appendChild(times); card.appendChild(hoursRow);
@@ -890,23 +862,35 @@ buildWorkHoursTable();
   });
 })();
 
-// ── REPORTS BARS ──────────────────────────────────────────────
+// ── REPORTS BARS — real leave data ───────────────────────────
 (function() {
   var container = document.getElementById('reportBars');
   if (!container) return;
-  var data=[
-    { label:'Engineering', used:8 }, { label:'Sales', used:3 },
-    { label:'Finance', used:2 },     { label:'HR', used:1 }, { label:'Marketing', used:5 },
-  ];
-  var max=8;
-  data.forEach(function(d) {
+
+  // Count approved leaves per department
+  var deptLeaves = {};
+  employees.forEach(function(emp) {
+    var leaves = [];
+    try { leaves = JSON.parse(localStorage.getItem('wp_leaves_'+emp.id)||'[]'); } catch(e){}
+    var approved = leaves.filter(function(l){ return l.status==='approved'; }).reduce(function(sum,l){ return sum+(l.days||0); },0);
+    deptLeaves[emp.dept] = (deptLeaves[emp.dept]||0) + approved;
+  });
+
+  var depts = Object.keys(deptLeaves);
+  if (!depts.length) {
+    container.innerHTML = '<p style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px;">No approved leave data yet.</p>';
+    return;
+  }
+  var max = Math.max.apply(null, depts.map(function(d){ return deptLeaves[d]; })) || 1;
+  depts.sort(function(a,b){ return deptLeaves[b]-deptLeaves[a]; }).forEach(function(dept) {
+    var used = deptLeaves[dept];
     var item=document.createElement('div'); item.className='report-bar-item';
     var lbl=document.createElement('div'); lbl.className='report-bar-label';
-    var l=document.createElement('span'); l.textContent=d.label;
-    var r=document.createElement('span'); r.textContent=d.used+' leave days';
+    var l=document.createElement('span'); l.textContent=dept;
+    var r=document.createElement('span'); r.textContent=used+' leave day'+(used!==1?'s':'');
     lbl.appendChild(l); lbl.appendChild(r);
     var track=document.createElement('div'); track.className='report-bar-track';
-    var fill=document.createElement('div'); fill.className='report-bar-fill'; fill.style.width=Math.round((d.used/max)*100)+'%';
+    var fill=document.createElement('div'); fill.className='report-bar-fill'; fill.style.width=Math.round((used/max)*100)+'%';
     track.appendChild(fill); item.appendChild(lbl); item.appendChild(track); container.appendChild(item);
   });
 })();
@@ -1225,40 +1209,6 @@ function calcHoursForDetail(ci, co) {
 }
 
 // Wire employee name links → open detail modal
-// Called after buildEmployeeTable renders
-function wireEmpNameLinks() {
-  var tbody = document.getElementById('employeeTableBody');
-  if (!tbody) return;
-  tbody.querySelectorAll('[data-emp-link]').forEach(function(el) {
-    el.addEventListener('click', function() {
-      var id = this.getAttribute('data-emp-link');
-      var emp = employees.find(function(e){return e.id===id;});
-      if (emp) openEmployeeDetail(emp);
-    });
-  });
-}
-
-// Patch buildEmployeeTable to add clickable name links
-var _origBuildEmpTable = buildEmployeeTable;
-buildEmployeeTable = function(data) {
-  _origBuildEmpTable(data);
-  // Make name cells clickable
-  var tbody = document.getElementById('employeeTableBody');
-  if (!tbody) return;
-  tbody.querySelectorAll('tr').forEach(function(tr, idx) {
-    if (!data[idx]) return;
-    var emp = data[idx];
-    var nameDiv = tr.querySelector('div > div > div:first-child');
-    if (nameDiv) {
-      nameDiv.style.cssText = 'font-weight:600;font-size:13px;color:var(--brand);cursor:pointer;text-decoration:underline;';
-      nameDiv.setAttribute('data-emp-link', emp.id);
-      nameDiv.addEventListener('click', function() { openEmployeeDetail(emp); });
-    }
-  });
-};
-// Re-run to wire existing table
-(function(){ buildEmployeeTable(employees); })();
-
 // ═══════════════════════════════════════════════════════════════
 //  EXCEL EXPORT — clean, no bugs
 // ═══════════════════════════════════════════════════════════════
@@ -1386,19 +1336,125 @@ function exportFullReport() {
   showAdminToast('✅ Full report exported!');
 }
 
-// Wire export buttons in Reports screen
+// Wire export buttons in Reports screen + Attendance screen
 (function() {
   var btnMap = {
-    'exportAttendanceBtn'  : exportAttendanceReport,
-    'exportLeaveBtn'       : exportLeaveReport,
-    'exportPermissionBtn'  : exportPermissionReport,
-    'exportFullBtn'        : exportFullReport
+    'exportAttendanceBtn'    : exportAttendanceReport,
+    'exportAttendanceBtnAtt' : exportAttendanceReport,
+    'exportLeaveBtn'         : exportLeaveReport,
+    'exportPermissionBtn'    : exportPermissionReport,
+    'exportFullBtn'          : exportFullReport
   };
   Object.keys(btnMap).forEach(function(id) {
     var btn = document.getElementById(id);
     if (btn) btn.addEventListener('click', btnMap[id]);
   });
 })();
+
+// ── WORK HOURS TABLE — real data from sessions + attendance ───
+function buildWorkHoursTableReal() {
+  var tbody = document.getElementById('workHoursTableBody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  var attRecs = [];
+  try { attRecs = JSON.parse(localStorage.getItem('wp_attendance')||'[]'); } catch(e){}
+
+  var TARGET_DAYS = 5, TARGET_HOURS = 40;
+
+  employees.forEach(function(emp) {
+    var empAtt = attRecs.filter(function(r){ return r.empId===emp.id && (r.status==='present'||r.status==='late'); });
+    var workDays = empAtt.length;
+
+    // Calculate total worked hours from sessions + attendance
+    var totalMins = 0;
+    empAtt.forEach(function(r) {
+      if (r.workedSecs) { totalMins += Math.floor(r.workedSecs/60); }
+      else if (r.checkIn && r.checkOut && r.checkIn!=='—' && r.checkOut!=='—') {
+        var p1=r.checkIn.split(':'), p2=r.checkOut.split(':');
+        totalMins += (parseInt(p2[0])*60+parseInt(p2[1])) - (parseInt(p1[0])*60+parseInt(p1[1]));
+      }
+    });
+
+    // Today's live session
+    var todayIn='—', todayOut='—', todayMins=0;
+    try {
+      var sesRaw = localStorage.getItem('wp_session_'+emp.id);
+      if (sesRaw) {
+        var ses = JSON.parse(sesRaw);
+        var todayKey = (function(){ var d=new Date(),p=function(n){return String(n).padStart(2,'0');}; return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); })();
+        if (ses && ses.date===todayKey) {
+          var ws=0;
+          (ses.segments||[]).forEach(function(seg){ if(seg.type==='work'){ var s=new Date(seg.start).getTime(),e2=seg.end?new Date(seg.end).getTime():Date.now(); ws+=Math.floor((e2-s)/1000); } });
+          todayMins = Math.floor(ws/60);
+          if (ses.checkIn) { var ci=new Date(ses.checkIn); todayIn=String(ci.getHours()).padStart(2,'0')+':'+String(ci.getMinutes()).padStart(2,'0'); }
+          if (ses.checkOut) { var co=new Date(ses.checkOut); todayOut=String(co.getHours()).padStart(2,'0')+':'+String(co.getMinutes()).padStart(2,'0'); }
+          totalMins += todayMins;
+          if (todayIn!=='—') workDays = Math.max(workDays, 1);
+        }
+      }
+    } catch(e){}
+
+    var totalHours = (totalMins/60).toFixed(1)*1;
+
+    var tr = document.createElement('tr');
+    var empTd = document.createElement('td');
+    var wrap = document.createElement('div'); wrap.style.cssText='display:flex;align-items:center;gap:8px;';
+    var av = document.createElement('div'); av.className='avatar'; av.style.cssText='width:28px;height:28px;font-size:10px;flex-shrink:0;'; av.textContent=emp.initials;
+    var nameDiv = document.createElement('div');
+    var nm=document.createElement('div'); nm.style.cssText='font-weight:600;font-size:13px;color:var(--brand);cursor:pointer;'; nm.textContent=emp.name;
+    (function(e){ nm.addEventListener('click', function(){ openEmployeeDetail(e); }); })(emp);
+    var idEl=document.createElement('div'); idEl.style.cssText='font-size:10px;color:var(--text-muted);'; idEl.textContent=emp.id;
+    nameDiv.appendChild(nm); nameDiv.appendChild(idEl); wrap.appendChild(av); wrap.appendChild(nameDiv); empTd.appendChild(wrap);
+    tr.appendChild(empTd);
+
+    function td(t){var c=document.createElement('td');c.textContent=t;return c;}
+    tr.appendChild(td(emp.dept));
+
+    var daysTd=document.createElement('td');
+    var dw=document.createElement('div'); dw.className='wh-progress';
+    var dt=document.createElement('div'); dt.className='wh-bar-track';
+    var df=document.createElement('div'); df.className='wh-bar-fill '+(workDays>=TARGET_DAYS?'good':workDays>=TARGET_DAYS-1?'warn':'low'); df.style.width=Math.min(100,Math.round((workDays/TARGET_DAYS)*100))+'%';
+    dt.appendChild(df); var dl2=document.createElement('span'); dl2.className='wh-hours-label'; dl2.textContent=workDays+' / '+TARGET_DAYS;
+    dw.appendChild(dt); dw.appendChild(dl2); daysTd.appendChild(dw); tr.appendChild(daysTd);
+
+    var hrsTd=document.createElement('td');
+    var hw=document.createElement('div'); hw.className='wh-progress';
+    var ht=document.createElement('div'); ht.className='wh-bar-track';
+    var hf=document.createElement('div'); hf.className='wh-bar-fill '+(totalHours>=TARGET_HOURS?'good':totalHours>=TARGET_HOURS-5?'warn':'low'); hf.style.width=Math.min(100,Math.round((totalHours/TARGET_HOURS)*100))+'%';
+    ht.appendChild(hf); var hl2=document.createElement('span'); hl2.className='wh-hours-label'; hl2.textContent=totalHours+'h / '+TARGET_HOURS+'h';
+    hw.appendChild(ht); hw.appendChild(hl2); hrsTd.appendChild(hw); tr.appendChild(hrsTd);
+
+    tr.appendChild(td(workDays>0?(totalHours/workDays).toFixed(1)+'h':'0.0h'));
+
+    var ot=Math.max(0,totalHours-TARGET_HOURS);
+    var otTd=document.createElement('td'); otTd.textContent=ot>0?'+'+ot.toFixed(1)+'h':'—';
+    if(ot>0) otTd.style.cssText='color:var(--green);font-weight:600;';
+    tr.appendChild(otTd);
+
+    tr.appendChild(td(todayIn)); tr.appendChild(td(todayOut));
+
+    var todayTd=document.createElement('td');
+    todayTd.textContent=todayMins>0?Math.floor(todayMins/60)+'h '+(todayMins%60)+'m':'—';
+    if(todayMins>0) todayTd.style.cssText='font-weight:600;color:var(--brand);';
+    tr.appendChild(todayTd);
+
+    var stTd=document.createElement('td'); var b=document.createElement('span');
+    var ls = getEmployeeLiveStatus(emp);
+    var stMap = { present:'badge-green', break:'badge-yellow', 'checked-out':'badge-blue', leave:'badge-purple', absent:'badge-red' };
+    var lbMap = { present:'Working', break:'On Break', 'checked-out':'Done', leave:'On Leave', absent:'Absent' };
+    b.className='badge '+(stMap[ls.status]||'badge-red'); b.textContent=lbMap[ls.status]||'Absent';
+    stTd.appendChild(b); tr.appendChild(stTd);
+
+    tbody.appendChild(tr);
+  });
+}
+buildWorkHoursTableReal();
+// Refresh every 10s when on work hours screen
+setInterval(function() {
+  var s = document.getElementById('screen-admin-workhours');
+  if (s && s.classList.contains('active')) buildWorkHoursTableReal();
+}, 10000);
 
 // ═══════════════════════════════════════════════════════════════
 //  PERMISSIONS QUEUE for Admin
@@ -1594,11 +1650,4 @@ setInterval(function() {
   if (attScreen && attScreen.classList.contains('active')) buildDetailedAttendance();
 }, 5000);
 
-function showAdminToast(msg) {
-  var old=document.getElementById('adminToast'); if(old) old.remove();
-  var t=document.createElement('div'); t.id='adminToast';
-  t.textContent=msg;
-  t.style.cssText='position:fixed;bottom:28px;right:28px;background:#1e1b4b;color:#fff;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:600;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,.2);';
-  document.body.appendChild(t);
-  setTimeout(function(){if(t.parentNode)t.remove();},3000);
-}
+// showAdminToast defined at line ~1049 — no duplicate needed
